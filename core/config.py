@@ -19,8 +19,9 @@ class ConfigError(RuntimeError):
 class Settings:
     """Immutable application settings."""
 
-    openai_api_key: str
-    openai_model: str
+    llm_api_key: str
+    llm_model: str
+    llm_base_url: str | None
     tavily_api_key: str
     tavily_base_url: str
     max_search_results: int
@@ -54,9 +55,17 @@ def _get_float_env(name: str, default: float) -> float:
 def load_settings() -> Settings:
     """Load runtime settings from the environment."""
 
+    llm_api_key = os.getenv("LLM_API_KEY", "").strip() or os.getenv("OPENAI_API_KEY", "").strip()
+    if not llm_api_key:
+        raise ConfigError("Missing required environment variable: LLM_API_KEY")
+
+    llm_model = os.getenv("LLM_MODEL", "").strip() or os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
+    llm_base_url = os.getenv("LLM_BASE_URL", "").strip() or None
+
     return Settings(
-        openai_api_key=_get_required_env("OPENAI_API_KEY"),
-        openai_model=os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip(),
+        llm_api_key=llm_api_key,
+        llm_model=llm_model,
+        llm_base_url=llm_base_url,
         tavily_api_key=_get_required_env("TAVILY_API_KEY"),
         tavily_base_url=os.getenv("TAVILY_BASE_URL", "https://api.tavily.com").strip(),
         max_search_results=_get_int_env("MAX_SEARCH_RESULTS", 5),

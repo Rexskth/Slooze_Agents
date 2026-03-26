@@ -1,4 +1,4 @@
-"""Reusable OpenAI client wrapper for grounded generation."""
+"""Reusable OpenAI-compatible client wrapper for grounded generation."""
 
 from __future__ import annotations
 
@@ -15,11 +15,14 @@ logger = get_logger(__name__)
 
 
 class OpenAILLMClient:
-    """Thin wrapper around the OpenAI async client."""
+    """Thin wrapper around an OpenAI-compatible async client."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.client = AsyncOpenAI(api_key=settings.openai_api_key)
+        client_kwargs: dict[str, Any] = {"api_key": settings.llm_api_key}
+        if settings.llm_base_url:
+            client_kwargs["base_url"] = settings.llm_base_url
+        self.client = AsyncOpenAI(**client_kwargs)
 
     async def generate_json(
         self,
@@ -32,7 +35,7 @@ class OpenAILLMClient:
 
         async def _request() -> dict[str, Any]:
             response = await self.client.chat.completions.create(
-                model=self.settings.openai_model,
+                model=self.settings.llm_model,
                 temperature=temperature if temperature is not None else self.settings.llm_temperature,
                 response_format={"type": "json_object"},
                 messages=[
@@ -43,13 +46,13 @@ class OpenAILLMClient:
 
             content = response.choices[0].message.content
             if not content:
-                raise LLMProviderError("OpenAI returned an empty response.")
+                raise LLMProviderError("LLM provider returned an empty response.")
 
             try:
                 return json.loads(content)
             except json.JSONDecodeError as exc:
                 logger.exception("Failed to decode model JSON response.")
-                raise LLMProviderError("OpenAI returned invalid JSON.") from exc
+                raise LLMProviderError("LLM provider returned invalid JSON.") from exc
 
         try:
             return await async_retry(
@@ -61,5 +64,5 @@ class OpenAILLMClient:
         except LLMProviderError:
             raise
         except Exception as exc:
-            logger.exception("OpenAI request failed.")
-            raise LLMProviderError("Failed to generate response from OpenAI.") from exc
+            logger.exception("LLM provider request failed.")
+            raise LLMProviderError("Failed to generate response from the configured LLM provider.") from exc

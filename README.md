@@ -1,6 +1,6 @@
 # AI Web Search Agent
 
-A production-style AI web search agent built with FastAPI, Tavily, and OpenAI. The service accepts a natural language query, retrieves real-time web results, constrains the model to those results, and returns a grounded answer with source URLs.
+A production-style AI web search agent built with FastAPI, Tavily, and an OpenAI-compatible LLM API. The service accepts a natural language query, retrieves real-time web results, constrains the model to those results, and returns a grounded answer with source URLs.
 
 ## Project Structure
 
@@ -48,7 +48,7 @@ README.md
 ### 3. Core Layer
 
 - `core/config.py` loads environment-backed settings.
-- `core/llm.py` centralizes OpenAI calls for reuse.
+- `core/llm.py` centralizes OpenAI-compatible LLM calls for reuse.
 - `core/utils.py` provides logging, retries, caching, text cleanup, and shared exceptions.
 
 This separation keeps the search tool, reasoning layer, and API layer independent and easy to extend.
@@ -57,9 +57,9 @@ This separation keeps the search tool, reasoning layer, and API layer independen
 
 - Grounding first: the model is instructed to use only Tavily-provided context.
 - Minimal abstraction: no heavy orchestration framework is used.
-- Async by default: Tavily and OpenAI calls are asynchronous.
+- Async by default: Tavily and LLM provider calls are asynchronous.
 - Resilience: retries are applied around network calls.
-- Reuse: OpenAI and configuration are shared through core modules.
+- Reuse: LLM integration and configuration are shared through core modules.
 - Performance: repeated queries are cached in memory with TTL.
 
 ## Setup
@@ -83,7 +83,25 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Then update `.env` with valid `OPENAI_API_KEY` and `TAVILY_API_KEY` values.
+Then update `.env` with valid `LLM_API_KEY` and `TAVILY_API_KEY` values.
+
+Example Groq configuration:
+
+```env
+LLM_API_KEY=your_groq_api_key
+LLM_MODEL=openai/gpt-oss-120b
+LLM_BASE_URL=https://api.groq.com/openai/v1
+TAVILY_API_KEY=your_tavily_api_key
+```
+
+Example OpenAI configuration:
+
+```env
+LLM_API_KEY=your_openai_api_key
+LLM_MODEL=gpt-4o-mini
+LLM_BASE_URL=https://api.openai.com/v1
+TAVILY_API_KEY=your_tavily_api_key
+```
 
 ## Running the API
 
@@ -125,7 +143,7 @@ curl -X POST http://127.0.0.1:8000/search \
 
 - Empty queries return validation errors.
 - Missing configuration returns a clear server-side configuration message.
-- Tavily or OpenAI failures return meaningful upstream error messages.
+- Tavily or LLM provider failures return meaningful upstream error messages.
 - Unhandled failures are converted into a generic 500 response.
 
 ## Extensibility
