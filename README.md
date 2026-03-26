@@ -1,11 +1,58 @@
-# AI Agent Platform
+# Unified AI Agent Platform
 
-This repository contains a modular FastAPI-based AI backend with two independent agents:
+This project is a production-style AI backend built in Python with FastAPI. It combines:
 
-- `Web Search Agent`
-- `AI Agent for PDF Summarization and Question Answering`
+- a `Web Search Agent` for real-time internet queries
+- an `AI Agent for PDF Summarization and Question Answering`
+- a thin `Orchestrator Layer` that routes queries to the correct specialist agent
 
-The platform is designed to look like a production-ready backend, not a one-off script. Shared configuration, LLM access, embeddings, and utilities live in `core/`, while each agent keeps its own retrieval and prompting logic isolated.
+The system is designed to be modular, grounded, and easy to extend.
+
+## What This Platform Can Do
+
+### 1. Web Search Agent
+
+- accepts a natural language query
+- retrieves live web results using Tavily
+- uses an LLM to produce a grounded answer
+- returns answer plus source URLs
+
+### 2. PDF RAG Agent
+
+- accepts a PDF upload
+- extracts text using PyMuPDF
+- chunks text and stores embeddings in FAISS
+- answers questions grounded in the uploaded document
+- summarizes the uploaded document
+- returns answer plus page/chunk sources
+
+### 3. Orchestrator
+
+- exposes a unified `/query` endpoint
+- decides whether a query should go to:
+  - the web agent
+  - the PDF agent
+- returns a unified response:
+
+```json
+{
+  "route": "web",
+  "answer": "...",
+  "sources": [...]
+}
+```
+
+## Tech Stack
+
+- Python
+- FastAPI
+- Streamlit
+- Tavily
+- FAISS
+- PyMuPDF
+- OpenAI-compatible chat API
+- OpenRouter embeddings
+- python-dotenv
 
 ## Project Structure
 
@@ -44,74 +91,64 @@ data/
   vector_store/
 
 requirements.txt
-.env
 .env.example
 README.md
 ```
 
-## Architecture
+## Architecture Overview
 
-### 1. API Layer
+### API Layer
 
-- `api/main.py` exposes the FastAPI app and all agent endpoints.
-- Request validation and HTTP error mapping stay at the edge of the system.
-- `ui/app.py` provides a thin Streamlit chat interface for the web search agent.
-- `ui/pdf_app.py` provides a PDF-focused Streamlit interface for upload, ask, and summarize.
-- `ui/platform_app.py` provides a unified Streamlit interface that tests the orchestrated `/query` flow.
+- [main.py](/Users/mac/Documents/Me/Slooze_Agents/api/main.py) exposes:
+  - `/query`
+  - `/search`
+  - `/upload`
+  - `/ask`
+  - `/summarize`
 
-### 2. Agent Layer
+### Specialist Agents
 
-- `agent/web_search_agent/` contains grounded web retrieval and answer generation.
-- `agent/pdf_rag_agent/` contains PDF ingestion, chunking, FAISS retrieval, question answering, and summarization.
-- `agent/orchestrator/` contains the router and controller that unify both agents behind one platform endpoint.
+- [agent.py](/Users/mac/Documents/Me/Slooze_Agents/agent/web_search_agent/agent.py) handles grounded web search
+- [qa.py](/Users/mac/Documents/Me/Slooze_Agents/agent/pdf_rag_agent/qa.py) handles PDF question answering and summarization
 
-### 3. Core Layer
+### Orchestrator Layer
 
-- `core/config.py` loads environment-backed settings.
-- `core/llm.py` centralizes OpenAI-compatible LLM calls for reuse.
-- `core/embeddings.py` centralizes embedding generation for the PDF agent.
-- `core/utils.py` provides logging, retries, caching, hashing, filesystem helpers, text cleanup, and shared exceptions.
+- [router.py](/Users/mac/Documents/Me/Slooze_Agents/agent/orchestrator/router.py) makes routing decisions
+- [agent_controller.py](/Users/mac/Documents/Me/Slooze_Agents/agent/orchestrator/agent_controller.py) delegates work to specialist agents
 
-This separation keeps the search tool, reasoning layer, and API layer independent and easy to extend.
+### Shared Core
 
-## Design Decisions
+- [config.py](/Users/mac/Documents/Me/Slooze_Agents/core/config.py)
+- [llm.py](/Users/mac/Documents/Me/Slooze_Agents/core/llm.py)
+- [embeddings.py](/Users/mac/Documents/Me/Slooze_Agents/core/embeddings.py)
+- [utils.py](/Users/mac/Documents/Me/Slooze_Agents/core/utils.py)
 
-- Grounding first: both agents are instructed to answer only from retrieved context.
-- Source enforcement: normal answers should be returned with supporting sources.
-- Orchestration over replacement: specialist agents remain independent and are coordinated through a thin routing layer.
-- Minimal abstraction: no LangChain or heavy orchestration framework is used.
-- Async by default: provider calls are asynchronous.
-- Resilience: retries are applied around network calls.
-- Reuse: LLM, embeddings, configuration, and utilities are shared through core modules.
-- PDF persistence: uploaded PDFs and FAISS indexes are stored locally in `data/`.
-- Duplicate handling: PDFs are hashed so the same file can reuse an existing `document_id`.
+## Before You Run
 
-## Setup
+You need API keys for:
 
-### 1. Create and activate a virtual environment
+- Tavily
+- chat LLM provider
+- embedding provider
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-```
+This project is currently configured to work well with:
 
-### 2. Install dependencies
+- Groq for chat completion
+- OpenRouter for embeddings
 
-```bash
-pip install -r requirements.txt
-```
+You can also switch the chat model/base URL if you use another OpenAI-compatible provider.
 
-### 3. Configure environment variables
+## Environment Setup
+
+Create your local `.env` file:
 
 ```bash
 cp .env.example .env
 ```
 
-Update `.env` with valid provider keys.
+Then update it with your real values.
 
-### Example LLM + Embeddings Setup
-
-Groq for chat and OpenRouter for embeddings:
+### Recommended `.env` Setup
 
 ```env
 LLM_API_KEY=your_groq_api_key
@@ -132,422 +169,250 @@ CHUNK_SIZE_TOKENS=700
 CHUNK_OVERLAP_TOKENS=80
 RETRIEVAL_TOP_K=4
 SUMMARY_MAX_CHUNKS=8
+
+MAX_SEARCH_RESULTS=5
+CONTEXT_CHAR_LIMIT=6000
+LLM_TEMPERATURE=0.2
+CACHE_TTL_SECONDS=300
+LOG_LEVEL=INFO
 ```
 
-## Quick Start
+## Install and Run
 
-From the project root:
+### 1. Create a virtual environment
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
 ```
 
-Update `.env` with your real credentials, then start the backend:
+### 2. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 3. Start the backend
 
 ```bash
 uvicorn api.main:app --reload
 ```
 
-If you want to demo the web search agent from a UI, open a second terminal and run:
+Backend default URL:
+
+- `http://127.0.0.1:8000`
+
+## Streamlit UIs
+
+This repo includes three Streamlit apps.
+
+### 1. Web Search UI
+
+Use this to test only the web search agent.
 
 ```bash
-source .venv/bin/activate
 streamlit run ui/app.py
 ```
 
-If you want to demo the PDF RAG agent from a UI, run:
+### 2. PDF Agent UI
+
+Use this to test only the PDF upload / ask / summarize flow.
 
 ```bash
-source .venv/bin/activate
 streamlit run ui/pdf_app.py
 ```
 
-If you want to demo the full orchestrated platform from one UI, run:
+### 3. Unified Platform UI
+
+Use this to test the full orchestrated system from one place.
 
 ```bash
-source .venv/bin/activate
 streamlit run ui/platform_app.py
 ```
 
-Default local URLs:
+This is the recommended UI for evaluators.
 
-- FastAPI: `http://127.0.0.1:8000`
-- Streamlit: `http://127.0.0.1:8501`
+## Best Way For Evaluators To Test
 
-## API Usage
-
-### Health Check
+### Step 1. Start backend
 
 ```bash
-curl http://127.0.0.1:8000/health
+uvicorn api.main:app --reload
 ```
 
-Expected response:
-
-```json
-{"status":"ok"}
-```
-
-## Unified Orchestrator
-
-The platform exposes a unified query endpoint:
-
-- `POST /query`
-
-The orchestrator:
-
-- inspects the query
-- routes it to either the web agent or PDF agent
-- returns a unified response shape
-
-### Example Web Query
+### Step 2. Start unified platform UI
 
 ```bash
-curl -X POST http://127.0.0.1:8000/query \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "What are the latest MacBook specs?"
-  }'
+streamlit run ui/platform_app.py
 ```
 
-Example response:
+### Step 3. Open the UI in browser
 
-```json
-{
-  "route": "web",
-  "answer": "...",
-  "sources": [
-    "https://..."
-  ]
-}
-```
+Usually:
 
-### Example PDF Query
+- `http://127.0.0.1:8501`
 
-```bash
-curl -X POST http://127.0.0.1:8000/query \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "What methodology was used in this document?",
-    "document_id": "doc_abc123def456"
-  }'
-```
+### Step 4. Test web routing
 
-Example response:
-
-```json
-{
-  "route": "pdf",
-  "answer": "...",
-  "sources": [
-    {
-      "page": 2,
-      "chunk_id": "chunk_5"
-    }
-  ]
-}
-```
-
-### Important Routing Note
-
-- If the router selects the PDF agent, `document_id` must be provided.
-- If a PDF-oriented query is sent without `document_id`, the API returns a clear error.
-- Direct endpoints like `/search`, `/upload`, `/ask`, and `/summarize` remain available for testing specialist agents individually.
-
-## Orchestrator UI Usage
-
-- Start the backend:
-  `uvicorn api.main:app --reload`
-- Start the unified platform UI:
-  `streamlit run ui/platform_app.py`
-- Use the UI in two modes:
-  - ask open-domain questions without uploading a PDF to test web routing
-  - upload a PDF, enable document context, then ask document-related questions to test PDF routing
-- The UI shows:
-  - selected route (`web` or `pdf`)
-  - answer
-  - route-appropriate sources
-- You can also click `Summarize Current Document` after uploading a PDF.
-
-## Web Search Agent
-
-### Endpoint
-
-- `POST /search`
-
-### Example Request
-
-```bash
-curl -X POST http://127.0.0.1:8000/search \
-  -H "Content-Type: application/json" \
-  -d '{"query": "latest MacBook specs"}'
-```
-
-### Example Response
-
-```json
-{
-  "answer": "Apple's latest MacBook lineup includes...",
-  "sources": [
-    "https://www.apple.com/macbook-air/",
-    "https://support.apple.com/..."
-  ]
-}
-```
-
-## AI Agent for PDF Summarization and Question Answering
-
-### Workflow
-
-1. Upload a PDF to `/upload`
-2. Receive a `document_id`
-3. Use that `document_id` with `/ask` or `/summarize`
-
-### Upload a PDF
-
-- Endpoint: `POST /upload`
-- Content type: `multipart/form-data`
-
-```bash
-curl -X POST http://127.0.0.1:8000/upload \
-  -F "file=@/absolute/path/to/your/document.pdf"
-```
-
-Example response:
-
-```json
-{
-  "document_id": "doc_abc123def456",
-  "filename": "document.pdf",
-  "page_count": 8,
-  "chunk_count": 14,
-  "reused_existing": false
-}
-```
-
-### Ask a Question About a PDF
-
-- Endpoint: `POST /ask`
-
-```bash
-curl -X POST http://127.0.0.1:8000/ask \
-  -H "Content-Type: application/json" \
-  -d '{
-    "document_id": "doc_abc123def456",
-    "query": "What methodology was used?"
-  }'
-```
-
-Example response:
-
-```json
-{
-  "answer": "The document describes a survey-based methodology with ...",
-  "sources": [
-    {
-      "page": 2,
-      "chunk_id": "chunk_5"
-    }
-  ]
-}
-```
-
-### Summarize a PDF
-
-- Endpoint: `POST /summarize`
-
-```bash
-curl -X POST http://127.0.0.1:8000/summarize \
-  -H "Content-Type: application/json" \
-  -d '{
-    "document_id": "doc_abc123def456"
-  }'
-```
-
-Example response:
-
-```json
-{
-  "answer": "This document discusses ...",
-  "sources": [
-    {
-      "page": 1,
-      "chunk_id": "chunk_1"
-    }
-  ]
-}
-```
-
-## UI Usage
-
-- Open the Streamlit app after starting the FastAPI server.
-- Enter a natural language question in the chat input.
-- Review the grounded answer and clickable source links.
-- Use the sidebar clear button to reset the conversation.
-
-Example questions:
+In the unified UI, ask:
 
 - `latest MacBook specs`
 - `latest launched cars`
 - `top richest people`
 
-## PDF UI Usage
+Expected:
 
-- Open the PDF Streamlit app after starting the FastAPI server:
-  `streamlit run ui/pdf_app.py`
-- Upload a PDF file.
-- Wait for indexing to complete and note the displayed `document_id`.
-- Use `Summarize Document` to generate a document summary.
-- Ask follow-up questions in the chat input.
-- Review the answer and page/chunk-based sources.
+- route should behave like `web`
+- answer should include web sources
 
-## How To Verify It Works
+### Step 5. Test PDF routing
 
-### 1. Verify unified web routing
+In the unified UI:
 
-```bash
-curl -X POST http://127.0.0.1:8000/query \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query":"latest MacBook specs"
-  }'
-```
+1. upload a PDF
+2. enable document context
+3. ask:
+   - `What methodology was used in this document?`
+   - `Summarize this document`
 
-Confirm the response includes:
+Expected:
 
-- `"route": "web"`
-- an answer
-- one or more source URLs
+- route should behave like `pdf`
+- answer should include page/chunk sources
 
-### 2. Verify unified PDF routing
+## API Endpoints
 
-First upload a PDF:
+### Health
 
 ```bash
-curl -X POST http://127.0.0.1:8000/upload \
-  -F "file=@/absolute/path/to/your/document.pdf"
+GET /health
 ```
 
-Then query through the orchestrator:
+### Unified Query
 
 ```bash
-curl -X POST http://127.0.0.1:8000/query \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query":"What is this document about?",
-    "document_id":"doc_abc123def456"
-  }'
+POST /query
 ```
 
-Confirm the response includes:
+Example web request:
 
-- `"route": "pdf"`
-- a grounded answer
-- `sources` with page and chunk references
-
-### 3. Verify direct web endpoint
-
-```bash
-curl -X POST http://127.0.0.1:8000/search \
-  -H "Content-Type: application/json" \
-  -d '{"query":"latest MacBook specs"}'
+```json
+{
+  "query": "What are the latest MacBook specs?"
+}
 ```
 
-Confirm the response includes:
+Example PDF request:
 
-- an answer
-- one or more source URLs
-
-### 4. Verify direct PDF upload and QA
-
-```bash
-curl -X POST http://127.0.0.1:8000/upload \
-  -F "file=@/absolute/path/to/your/document.pdf"
+```json
+{
+  "query": "What methodology was used in this document?",
+  "document_id": "doc_abc123def456"
+}
 ```
 
-Take the returned `document_id`, then run:
+Unified response format:
 
-```bash
-curl -X POST http://127.0.0.1:8000/ask \
-  -H "Content-Type: application/json" \
-  -d '{
-    "document_id": "doc_abc123def456",
-    "query": "What is this document about?"
-  }'
+```json
+{
+  "route": "web",
+  "answer": "...",
+  "sources": [...]
+}
 ```
 
-Confirm the response includes:
+### Direct Specialist Endpoints
 
-- a grounded answer
-- `sources` with page and chunk references
+These remain available for debugging and isolated testing:
 
-### 5. Verify PDF summarization
+- `POST /search`
+- `POST /upload`
+- `POST /ask`
+- `POST /summarize`
 
-```bash
-curl -X POST http://127.0.0.1:8000/summarize \
-  -H "Content-Type: application/json" \
-  -d '{
-    "document_id": "doc_abc123def456"
-  }'
-```
+## Important Behavior Notes
 
-Confirm the response includes:
+### Orchestrator
 
-- a concise summary
-- `sources` with page and chunk references
+- `/query` uses rule-based routing
+- if a PDF-oriented query is detected, `document_id` is required
+- if `document_id` is missing for a PDF route, the API returns a clear error
 
-### 6. Verify the Streamlit UIs
+### Web Agent
 
-- Open `http://127.0.0.1:8501` for the web search UI
-- Open `http://127.0.0.1:8502` or your configured PDF UI port for the PDF UI
-- Open the unified platform UI with:
-  `streamlit run ui/platform_app.py`
-- Confirm it can:
-  - route open-domain questions to `web`
-  - route document-aware questions to `pdf`
-  - show `route`, `answer`, and `sources`
+- answers are grounded in Tavily search results
+- source URLs are returned
 
-## Working Behavior
+### PDF Agent
 
-The web search agent is designed to enforce grounded output:
+- uploaded PDFs are stored locally
+- extracted text is chunked and embedded
+- vectors are stored in FAISS
+- answers are grounded in retrieved chunks
+- sources include page number and chunk id
 
-- If enough evidence is found, it returns a summarized answer plus sources.
-- If the evidence is insufficient, it returns `Insufficient information`.
-- A normal answer should not be shown without source URLs.
+## Local Data
 
-The PDF RAG agent is designed to enforce document-grounded output:
+The system stores runtime artifacts in:
 
-- PDFs are parsed with PyMuPDF and chunked before indexing.
-- Each chunk gets an embedding and is stored in a local FAISS index.
-- `/ask` retrieves the top relevant chunks for the query.
-- `/summarize` summarizes representative document chunks.
-- If the answer is not supported by document context, it returns `Not found in document`.
+- `data/documents/`
+- `data/vector_store/`
 
-The orchestrator is designed to keep the platform simple and extensible:
+These are local runtime files and are not meant to be committed as actual document data.
 
-- `/query` provides one entry point for end users.
-- `router.py` makes the routing decision.
-- `agent_controller.py` delegates execution to specialist agents.
-- specialist endpoints remain available for debugging and evaluation.
+## Design Choices
 
-## Error Handling
+- specialist agents remain independent
+- orchestration is added on top, not mixed into agent logic
+- no LangChain or hidden framework abstractions
+- provider configuration is environment-driven
+- direct endpoints are preserved for debugging
 
-- Empty queries return validation errors.
-- Invalid or unreadable PDFs return client errors.
-- Asking about a missing `document_id` returns not found.
-- Missing configuration returns a clear server-side configuration message.
-- Tavily, embedding provider, or LLM provider failures return meaningful upstream error messages.
-- Unhandled failures are converted into a generic 500 response.
+## Troubleshooting
 
-## Extensibility
+### Backend starts but answers fail
 
-This codebase is intentionally shaped so a future orchestrator can route between multiple agents:
+Check:
 
-- keep each agent in its own package
-- reuse `core/` for shared clients and utilities
-- let the API layer remain thin while orchestration grows separately
+- `LLM_API_KEY`
+- `EMBEDDING_API_KEY`
+- `TAVILY_API_KEY`
+- base URLs in `.env`
 
-That makes this a solid base for expanding into a unified multi-agent backend.
+### PDF upload works but questions fail
+
+Check:
+
+- embedding provider settings
+- that the PDF actually contains extractable text
+
+### Unified UI does not route to PDF
+
+Check:
+
+- a PDF was uploaded
+- document context is enabled in the UI
+- the query is document-oriented
+
+### Streamlit cannot reach backend
+
+Check:
+
+- backend is running
+- `API_BASE_URL` matches the backend URL
+
+## Recommended Demo Flow
+
+For an evaluator, the simplest demo flow is:
+
+1. clone the repo
+2. create `.env`
+3. install dependencies
+4. run backend
+5. run `streamlit run ui/platform_app.py`
+6. test one web query
+7. upload one PDF
+8. test one PDF question
+9. test PDF summarization
+
+That path demonstrates the full platform with minimal setup friction.
