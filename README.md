@@ -21,6 +21,9 @@ agent/
     retrieval.py
     qa.py
     prompts.py
+  orchestrator/
+    router.py
+    agent_controller.py
 
 core/
   embeddings.py
@@ -33,12 +36,12 @@ api/
 
 ui/
   app.py
+  pdf_app.py
+  platform_app.py
 
 data/
   documents/
   vector_store/
-
-orchestrator/
 
 requirements.txt
 .env
@@ -53,11 +56,14 @@ README.md
 - `api/main.py` exposes the FastAPI app and all agent endpoints.
 - Request validation and HTTP error mapping stay at the edge of the system.
 - `ui/app.py` provides a thin Streamlit chat interface for the web search agent.
+- `ui/pdf_app.py` provides a PDF-focused Streamlit interface for upload, ask, and summarize.
+- `ui/platform_app.py` provides a unified Streamlit interface that tests the orchestrated `/query` flow.
 
 ### 2. Agent Layer
 
 - `agent/web_search_agent/` contains grounded web retrieval and answer generation.
 - `agent/pdf_rag_agent/` contains PDF ingestion, chunking, FAISS retrieval, question answering, and summarization.
+- `agent/orchestrator/` contains the router and controller that unify both agents behind one platform endpoint.
 
 ### 3. Core Layer
 
@@ -72,6 +78,7 @@ This separation keeps the search tool, reasoning layer, and API layer independen
 
 - Grounding first: both agents are instructed to answer only from retrieved context.
 - Source enforcement: normal answers should be returned with supporting sources.
+- Orchestration over replacement: specialist agents remain independent and are coordinated through a thin routing layer.
 - Minimal abstraction: no LangChain or heavy orchestration framework is used.
 - Async by default: provider calls are asynchronous.
 - Resilience: retries are applied around network calls.
@@ -158,6 +165,13 @@ source .venv/bin/activate
 streamlit run ui/pdf_app.py
 ```
 
+If you want to demo the full orchestrated platform from one UI, run:
+
+```bash
+source .venv/bin/activate
+streamlit run ui/platform_app.py
+```
+
 Default local URLs:
 
 - FastAPI: `http://127.0.0.1:8000`
@@ -176,6 +190,87 @@ Expected response:
 ```json
 {"status":"ok"}
 ```
+
+## Unified Orchestrator
+
+The platform exposes a unified query endpoint:
+
+- `POST /query`
+
+The orchestrator:
+
+- inspects the query
+- routes it to either the web agent or PDF agent
+- returns a unified response shape
+
+### Example Web Query
+
+```bash
+curl -X POST http://127.0.0.1:8000/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "What are the latest MacBook specs?"
+  }'
+```
+
+Example response:
+
+```json
+{
+  "route": "web",
+  "answer": "...",
+  "sources": [
+    "https://..."
+  ]
+}
+```
+
+### Example PDF Query
+
+```bash
+curl -X POST http://127.0.0.1:8000/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "What methodology was used in this document?",
+    "document_id": "doc_abc123def456"
+  }'
+```
+
+Example response:
+
+```json
+{
+  "route": "pdf",
+  "answer": "...",
+  "sources": [
+    {
+      "page": 2,
+      "chunk_id": "chunk_5"
+    }
+  ]
+}
+```
+
+### Important Routing Note
+
+- If the router selects the PDF agent, `document_id` must be provided.
+- If a PDF-oriented query is sent without `document_id`, the API returns a clear error.
+- Direct endpoints like `/search`, `/upload`, `/ask`, and `/summarize` remain available for testing specialist agents individually.
+
+## Orchestrator UI Usage
+
+- Start the backend:
+  `uvicorn api.main:app --reload`
+- Start the unified platform UI:
+  `streamlit run ui/platform_app.py`
+- Use the UI in two modes:
+  - ask open-domain questions without uploading a PDF to test web routing
+  - upload a PDF, enable document context, then ask document-related questions to test PDF routing
+- The UI shows:
+  - selected route (`web` or `pdf`)
+  - answer
+  - route-appropriate sources
+- You can also click `Summarize Current Document` after uploading a PDF.
 
 ## Web Search Agent
 
@@ -311,7 +406,49 @@ Example questions:
 
 ## How To Verify It Works
 
-### 1. Verify web search
+### 1. Verify unified web routing
+
+```bash
+curl -X POST http://127.0.0.1:8000/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query":"latest MacBook specs"
+  }'
+```
+
+Confirm the response includes:
+
+- `"route": "web"`
+- an answer
+- one or more source URLs
+
+### 2. Verify unified PDF routing
+
+First upload a PDF:
+
+```bash
+curl -X POST http://127.0.0.1:8000/upload \
+  -F "file=@/absolute/path/to/your/document.pdf"
+```
+
+Then query through the orchestrator:
+
+```bash
+curl -X POST http://127.0.0.1:8000/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query":"What is this document about?",
+    "document_id":"doc_abc123def456"
+  }'
+```
+
+Confirm the response includes:
+
+- `"route": "pdf"`
+- a grounded answer
+- `sources` with page and chunk references
+
+### 3. Verify direct web endpoint
 
 ```bash
 curl -X POST http://127.0.0.1:8000/search \
@@ -324,7 +461,7 @@ Confirm the response includes:
 - an answer
 - one or more source URLs
 
-### 2. Verify PDF upload and QA
+### 4. Verify direct PDF upload and QA
 
 ```bash
 curl -X POST http://127.0.0.1:8000/upload \
@@ -347,7 +484,7 @@ Confirm the response includes:
 - a grounded answer
 - `sources` with page and chunk references
 
-### 3. Verify PDF summarization
+### 5. Verify PDF summarization
 
 ```bash
 curl -X POST http://127.0.0.1:8000/summarize \
@@ -362,11 +499,16 @@ Confirm the response includes:
 - a concise summary
 - `sources` with page and chunk references
 
-### 4. Verify the Streamlit UI
+### 6. Verify the Streamlit UIs
 
-- Open `http://127.0.0.1:8501`
-- Ask a web search question in the chat box
-- Confirm the response includes a grounded answer and source links
+- Open `http://127.0.0.1:8501` for the web search UI
+- Open `http://127.0.0.1:8502` or your configured PDF UI port for the PDF UI
+- Open the unified platform UI with:
+  `streamlit run ui/platform_app.py`
+- Confirm it can:
+  - route open-domain questions to `web`
+  - route document-aware questions to `pdf`
+  - show `route`, `answer`, and `sources`
 
 ## Working Behavior
 
@@ -383,6 +525,13 @@ The PDF RAG agent is designed to enforce document-grounded output:
 - `/ask` retrieves the top relevant chunks for the query.
 - `/summarize` summarizes representative document chunks.
 - If the answer is not supported by document context, it returns `Not found in document`.
+
+The orchestrator is designed to keep the platform simple and extensible:
+
+- `/query` provides one entry point for end users.
+- `router.py` makes the routing decision.
+- `agent_controller.py` delegates execution to specialist agents.
+- specialist endpoints remain available for debugging and evaluation.
 
 ## Error Handling
 

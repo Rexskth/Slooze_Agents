@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field, field_validator
 
+from agent.orchestrator.agent_controller import AgentController
+from agent.orchestrator.router import QueryRouter
 from agent.pdf_rag_agent.chunking import chunk_document
 from agent.pdf_rag_agent.ingestion import PDFIngestionService
 from agent.pdf_rag_agent.qa import PDFQuestionAnsweringService
@@ -41,6 +44,32 @@ class SearchResponse(BaseModel):
 
     answer: str
     sources: list[str]
+
+
+class QueryRequest(BaseModel):
+    """Unified orchestrator query request."""
+
+    query: str = Field(..., description="Natural language query for the platform.")
+    document_id: str | None = Field(
+        default=None,
+        description="Optional document identifier used for PDF-specific queries.",
+    )
+
+    @field_validator("query")
+    @classmethod
+    def validate_query(cls, value: str) -> str:
+        normalized = normalize_query(value)
+        if not normalized:
+            raise ValueError("Query must be a non-empty string.")
+        return normalized
+
+
+class UnifiedQueryResponse(BaseModel):
+    """Unified orchestrated response across agents."""
+
+    route: str
+    answer: str
+    sources: list[Any]
 
 
 class UploadResponse(BaseModel):
@@ -124,6 +153,28 @@ def get_pdf_qa_service() -> PDFQuestionAnsweringService:
     return PDFQuestionAnsweringService(settings)
 
 
+@lru_cache
+def get_router() -> QueryRouter:
+    """Create a singleton query router."""
+
+    settings = load_settings()
+    configure_logging(settings.log_level)
+    return QueryRouter()
+
+
+@lru_cache
+def get_agent_controller() -> AgentController:
+    """Create a singleton orchestrator controller."""
+
+    settings = load_settings()
+    configure_logging(settings.log_level)
+    return AgentController(
+        router=get_router(),
+        web_agent=WebSearchAgent(settings),
+        pdf_qa_service=PDFQuestionAnsweringService(settings),
+    )
+
+
 app = FastAPI(
     title="AI Agent Platform",
     version="1.0.0",
@@ -146,6 +197,24 @@ async def search(request: SearchRequest) -> SearchResponse:
         agent = get_agent()
         result = await agent.answer(request.query)
         return SearchResponse(answer=result.answer, sources=result.sources)
+    except ConfigError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except AgentError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Unexpected server error.") from exc
+
+
+@app.post("/query", response_model=UnifiedQueryResponse)
+async def query_platform(request: QueryRequest) -> UnifiedQueryResponse:
+    """Route a query dynamically to the web or PDF agent."""
+
+    try:
+        controller = get_agent_controller()
+        result = await controller.handle_query(query=request.query, document_id=request.document_id)
+        return UnifiedQueryResponse(route=result.route, answer=result.answer, sources=result.sources)
+    except DocumentNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ConfigError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except AgentError as exc:
