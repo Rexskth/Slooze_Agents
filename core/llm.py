@@ -66,3 +66,40 @@ class OpenAILLMClient:
         except Exception as exc:
             logger.exception("LLM provider request failed.")
             raise LLMProviderError("Failed to generate response from the configured LLM provider.") from exc
+
+    async def generate_text(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float | None = None,
+    ) -> str:
+        """Generate plain text from the LLM."""
+
+        async def _request() -> str:
+            response = await self.client.chat.completions.create(
+                model=self.settings.llm_model,
+                temperature=temperature if temperature is not None else self.settings.llm_temperature,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+
+            content = response.choices[0].message.content
+            if not content:
+                raise LLMProviderError("LLM provider returned an empty response.")
+            return content.strip()
+
+        try:
+            return await async_retry(
+                _request,
+                retries=2,
+                base_delay_seconds=1.0,
+                retriable_exceptions=(APIError, RateLimitError, LLMProviderError),
+            )
+        except LLMProviderError:
+            raise
+        except Exception as exc:
+            logger.exception("LLM provider request failed.")
+            raise LLMProviderError("Failed to generate text from the configured LLM provider.") from exc

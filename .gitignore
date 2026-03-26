@@ -3,3 +3,7 @@
 __pycache__/
 *.pyc
 .DS_Store
+data/documents/*
+data/vector_store/*
+!data/documents/.gitkeep
+!data/vector_store/.gitkeep

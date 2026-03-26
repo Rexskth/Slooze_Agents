@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
+import os
 import re
 import time
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 
@@ -20,6 +23,18 @@ class SearchProviderError(AgentError):
 
 class LLMProviderError(AgentError):
     """Raised when the language model provider fails."""
+
+
+class EmbeddingProviderError(AgentError):
+    """Raised when the embedding provider fails."""
+
+
+class DocumentProcessingError(AgentError):
+    """Raised when PDF ingestion or processing fails."""
+
+
+class DocumentNotFoundError(AgentError):
+    """Raised when a requested document is unavailable."""
 
 
 class TTLCache:
@@ -86,6 +101,55 @@ def truncate_text(text: str, max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
     return text[: max_chars - 3].rstrip() + "..."
+
+
+def ensure_directory(path: str | Path) -> Path:
+    """Create a directory if it does not already exist."""
+
+    directory = Path(path)
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def file_sha256(content: bytes) -> str:
+    """Hash file bytes deterministically."""
+
+    return hashlib.sha256(content).hexdigest()
+
+
+def safe_filename(name: str) -> str:
+    """Build a filesystem-safe filename."""
+
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("._")
+    return cleaned or "document.pdf"
+
+
+def write_json(path: str | Path, payload: Any) -> None:
+    """Write JSON to disk with stable formatting."""
+
+    Path(path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def read_json(path: str | Path) -> Any:
+    """Read JSON from disk."""
+
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def estimate_tokens(text: str) -> int:
+    """Estimate token count without a tokenizer dependency."""
+
+    words = len((text or "").split())
+    return max(1, int(words * 1.3))
+
+
+def resolve_data_path(path: str) -> Path:
+    """Resolve a configured data path relative to the project root."""
+
+    candidate = Path(path)
+    if candidate.is_absolute():
+        return candidate
+    return Path(os.getcwd()) / candidate
 
 
 async def async_retry(
