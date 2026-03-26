@@ -15,6 +15,8 @@ Rules:
 - Use only facts supported by the search context.
 - Keep the answer concise but complete.
 - Include only source_ids that directly support the answer.
+- Never return a non-empty answer with an empty source_ids list.
+- If you provide an answer, include at least one supporting source_id.
 - If the context is insufficient, return:
   {
     "answer": "Insufficient information",
@@ -34,5 +36,6 @@ Instructions:
 - Answer only from the search results above.
 - Do not guess or fill gaps.
 - Prefer a short synthesis over a long explanation.
+- If you answer, include the supporting source_ids.
 - Return JSON only.
 """.strip()

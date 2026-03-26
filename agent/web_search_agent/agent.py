@@ -99,5 +99,12 @@ class WebSearchAgent:
 
         if answer == "Insufficient information":
             sources = []
+        elif not sources:
+            # Fall back to top retrieved results so every grounded answer carries sources.
+            sources = [result.url for result in results[: min(3, len(results))]]
+            logger.warning(
+                "Model returned an answer without valid source_ids. Falling back to top %s retrieved URLs.",
+                len(sources),
+            )
 
         return WebSearchResponse(answer=answer, sources=sources)

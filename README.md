@@ -1,6 +1,12 @@
 # AI Web Search Agent
 
-A production-style AI web search agent built with FastAPI, Tavily, and an OpenAI-compatible LLM API. The service accepts a natural language query, retrieves real-time web results, constrains the model to those results, and returns a grounded answer with source URLs.
+A production-style AI web search agent built with FastAPI, Tavily, Streamlit, and an OpenAI-compatible LLM API. The system accepts a natural language query, retrieves real-time web results, constrains the model to those results, and returns a grounded answer with source URLs.
+
+This project currently includes:
+- a working FastAPI backend
+- a working Streamlit chat UI
+- live web retrieval via Tavily
+- grounded answer generation via a configurable OpenAI-compatible LLM provider such as Groq or OpenAI
 
 ## Project Structure
 
@@ -20,6 +26,9 @@ core/
 api/
   main.py
 
+ui/
+  app.py
+
 data/
   documents/
   vector_store/
@@ -38,6 +47,7 @@ README.md
 
 - `api/main.py` exposes the FastAPI app and `/search` endpoint.
 - Request validation and HTTP error mapping stay at the edge of the system.
+- `ui/app.py` provides a thin Streamlit chat interface that calls the backend API.
 
 ### 2. Agent Layer
 
@@ -56,6 +66,7 @@ This separation keeps the search tool, reasoning layer, and API layer independen
 ## Design Decisions
 
 - Grounding first: the model is instructed to use only Tavily-provided context.
+- Source enforcement: every non-insufficient answer is returned with source URLs.
 - Minimal abstraction: no heavy orchestration framework is used.
 - Async by default: Tavily and LLM provider calls are asynchronous.
 - Resilience: retries are applied around network calls.
@@ -94,6 +105,12 @@ LLM_BASE_URL=https://api.groq.com/openai/v1
 TAVILY_API_KEY=your_tavily_api_key
 ```
 
+For local UI usage, keep this set as well:
+
+```env
+API_BASE_URL=http://127.0.0.1:8000
+```
+
 Example OpenAI configuration:
 
 ```env
@@ -103,6 +120,30 @@ LLM_BASE_URL=https://api.openai.com/v1
 TAVILY_API_KEY=your_tavily_api_key
 ```
 
+## Quick Start
+
+From the project root:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+```
+
+Update `.env` with your real credentials, then start the backend:
+
+```bash
+uvicorn api.main:app --reload
+```
+
+In a second terminal, start the UI:
+
+```bash
+source .venv/bin/activate
+streamlit run ui/app.py
+```
+
 ## Running the API
 
 ```bash
@@ -110,6 +151,20 @@ uvicorn api.main:app --reload
 ```
 
 The API will be available at `http://127.0.0.1:8000`.
+
+## Running the Streamlit UI
+
+Start the FastAPI backend first, then run:
+
+```bash
+streamlit run ui/app.py
+```
+
+The UI will open in your browser and send requests to `API_BASE_URL`.
+
+Default local URLs:
+- FastAPI: `http://127.0.0.1:8000`
+- Streamlit: `http://127.0.0.1:8501`
 
 ## API Usage
 
@@ -138,6 +193,67 @@ curl -X POST http://127.0.0.1:8000/search \
   ]
 }
 ```
+
+## UI Usage
+
+- Open the Streamlit app after starting the FastAPI server.
+- Enter a natural language question in the chat input.
+- Review the grounded answer and clickable source links.
+- Use the sidebar clear button to reset the conversation.
+
+Example questions:
+- `latest MacBook specs`
+- `latest launched cars`
+- `top richest people`
+
+## How To Verify It Works
+
+### 1. Check the backend
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Expected response:
+
+```json
+{"status":"ok"}
+```
+
+### 2. Check the API search flow
+
+```bash
+curl -X POST http://127.0.0.1:8000/search \
+  -H "Content-Type: application/json" \
+  -d '{"query":"latest MacBook specs"}'
+```
+
+Expected response shape:
+
+```json
+{
+  "answer": "...",
+  "sources": [
+    "https://..."
+  ]
+}
+```
+
+### 3. Check the Streamlit UI
+
+- Open `http://127.0.0.1:8501`
+- Ask a question in the chat box
+- Confirm the response includes:
+  - a summarized answer
+  - one or more clickable sources
+
+## Working Behavior
+
+The web search agent is designed to enforce grounded output:
+
+- If enough evidence is found, it returns a summarized answer plus sources.
+- If the evidence is insufficient, it returns `Insufficient information`.
+- A normal answer should not be shown without source URLs.
 
 ## Error Handling
 
